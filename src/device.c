@@ -306,6 +306,17 @@ uvc_error_t uvc_wrap(
 }
 #endif
 
+int uvc_device_opened(uvc_context_t *ctx, uvc_device_handle_t *devh) {
+  uvc_device_handle_t *devh_iterator;
+
+  DL_FOREACH(ctx->open_devices, devh_iterator) {
+    if (devh == devh_iterator)
+      return 1;
+  }
+
+  return 0;
+}
+
 /** @brief Open a UVC device
  * @ingroup device
  *
