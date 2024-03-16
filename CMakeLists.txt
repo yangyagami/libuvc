@@ -23,7 +23,7 @@ endif()
 
 option(BUILD_EXAMPLE "Build example program" ON)
 option(BUILD_TEST "Build test program" OFF)
-option(ENABLE_UVC_DEBUGGING "Enable UVC debugging" ON)
+option(ENABLE_UVC_DEBUGGING "Enable UVC debugging" OFF)
 
 set(libuvc_DESCRIPTION "A cross-platform library for USB video devices")
 set(libuvc_URL "https://github.com/libuvc/libuvc")
@@ -131,15 +131,15 @@ foreach(target_name IN LISTS UVC_TARGETS)
       PRIVATE
         UVC_DEBUGGING
     )
-    # find_library(
-    #         log-lib
-    #         log
-    # )
-    # target_link_libraries(
-    #         ${target_name}
-    #         PRIVATE
-    #         ${log-lib}
-    # )
+    find_library(
+            log-lib
+            log
+    )
+    target_link_libraries(
+            ${target_name}
+            PRIVATE
+            ${log-lib}
+    )
   endif()
 endforeach()
 
