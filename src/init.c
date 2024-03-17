@@ -75,8 +75,51 @@ YUV stream from a UVC device such as a standard webcam.
  * @defgroup init Library initialization/deinitialization
  * @brief Setup routines used to construct UVC access contexts
  */
+#include <assert.h>
+
 #include "libuvc/libuvc.h"
 #include "libuvc/libuvc_internal.h"
+
+/** @internal
+ * @brief Hotplug callback.
+ */
+int _uvc_hotplug_callback(
+    struct libusb_context *ctx,
+    struct libusb_device *dev,
+    libusb_hotplug_event event,
+    void *user_data) {
+  static libusb_device_handle *dev_handle = NULL;
+  struct libusb_device_descriptor desc;
+
+  uvc_context_t *uvc_ctx = (uvc_context_t *) user_data;
+
+  uvc_device_handle_t *devh;
+
+  (void)libusb_get_device_descriptor(dev, &desc);
+
+  if (LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT == event) {
+    DL_FOREACH(uvc_ctx->open_devices, devh) {
+      assert(devh != NULL && devh->dev != NULL && devh->dev->usb_dev != NULL);
+
+      struct libusb_device_descriptor open_device_desc;
+      (void)libusb_get_device_descriptor(devh->dev->usb_dev,
+                                           &open_device_desc);
+      if (open_device_desc.idVendor == desc.idVendor &&
+          open_device_desc.idProduct == desc.idProduct) {
+        if (uvc_device_opened(uvc_ctx, devh)) {
+          uvc_close(devh);
+        }
+
+        UVC_DEBUG("Device left");
+      }
+    }
+  } else {
+    UVC_DEBUG("Unhandled event %d\n", event);
+  }
+
+  return 0;
+}
+
 
 /** @internal
  * @brief Event handler thread
@@ -120,6 +163,22 @@ uvc_error_t uvc_init(uvc_context_t **pctx, struct libusb_context *usb_ctx) {
   if (ctx != NULL)
     *pctx = ctx;
 
+  if (ctx != NULL) {
+    if (ctx->usb_ctx != NULL) {
+      libusb_hotplug_callback_handle callback_handle;
+      libusb_hotplug_register_callback(
+          ctx->usb_ctx,
+          LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT,
+          0,
+          LIBUSB_HOTPLUG_MATCH_ANY,
+          LIBUSB_HOTPLUG_MATCH_ANY,
+          LIBUSB_HOTPLUG_MATCH_ANY,
+          _uvc_hotplug_callback,
+          ctx,
+          &ctx->hotplug_callback_handle);
+    }
+  }
+
   return ret;
 }
 
@@ -142,8 +201,11 @@ void uvc_exit(uvc_context_t *ctx) {
     uvc_close(devh);
   }
 
-  if (ctx->own_usb_ctx)
+  if (ctx->own_usb_ctx) {
+    libusb_hotplug_deregister_callback(ctx->usb_ctx,
+                                       ctx->hotplug_callback_handle);
     libusb_exit(ctx->usb_ctx);
+  }
 
   free(ctx);
 }

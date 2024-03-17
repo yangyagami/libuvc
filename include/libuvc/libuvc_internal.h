@@ -303,6 +303,9 @@ struct uvc_context {
   uvc_device_handle_t *open_devices;
   pthread_t handler_thread;
   int kill_handler_thread;
+
+  /** Hotplug callback handle */
+  libusb_hotplug_callback_handle hotplug_callback_handle;
 };
 
 uvc_error_t uvc_query_stream_ctrl(
