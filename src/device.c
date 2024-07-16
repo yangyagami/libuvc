@@ -309,11 +309,16 @@ uvc_error_t uvc_wrap(
 int uvc_device_opened(uvc_context_t *ctx, uvc_device_handle_t *devh) {
   uvc_device_handle_t *devh_iterator;
 
+  pthread_mutex_lock(&(ctx->lock));
+
   DL_FOREACH(ctx->open_devices, devh_iterator) {
-    if (devh == devh_iterator)
+    if (devh != NULL && devh_iterator != NULL && devh == devh_iterator) {
+      pthread_mutex_unlock(&(ctx->lock));
       return 1;
+    }
   }
 
+  pthread_mutex_unlock(&(ctx->lock));
   return 0;
 }
 
@@ -1730,9 +1735,37 @@ void uvc_free_devh(uvc_device_handle_t *devh) {
  *
  * The device handle and frame structures will be invalidated.
  */
-void uvc_close(uvc_device_handle_t *devh) {
+void uvc_close(uvc_context_t *ctx, uvc_device_handle_t *devh) {
+  uint8_t flags = 0;  // Check whether devh opened
+  uvc_device_handle_t *devh_iterator = NULL;
+
   UVC_ENTER();
-  uvc_context_t *ctx = devh->dev->ctx;
+
+  pthread_mutex_lock(&(ctx->lock));
+
+  UVC_DEBUG("uvc_close tid: %ld", pthread_self());
+  DL_FOREACH(ctx->open_devices, devh_iterator) {
+    UVC_DEBUG("Fucking debug.....");
+    if (devh != NULL && devh_iterator != NULL) {
+      uvc_device_descriptor_t *desc;
+
+      if (uvc_get_device_descriptor(devh->dev, &desc) != UVC_SUCCESS) {
+	UVC_DEBUG("Get desc failed!");
+        continue;
+      }
+
+      UVC_DEBUG("Opened device: (vid: %x, pid: %x)",
+      	  desc->idVendor, desc->idProduct);
+
+      uvc_free_device_descriptor(desc);
+
+      if(devh == devh_iterator) {
+        flags = 1;
+      }
+    }
+  }
+
+  if (flags == 0) goto finish;
 
   if (devh->streams)
     uvc_stop_streaming(devh);
@@ -1744,9 +1777,7 @@ void uvc_close(uvc_device_handle_t *devh) {
    * it'll cause a return from the thread's libusb_handle_events call, after
    * which the handler thread will check the flag we set and then exit. */
   if (ctx->own_usb_ctx && ctx->open_devices == devh && devh->next == NULL) {
-    ctx->kill_handler_thread = 1;
     libusb_close(devh->usb_devh);
-    pthread_join(ctx->handler_thread, NULL);
   } else {
     libusb_close(devh->usb_devh);
   }
@@ -1756,6 +1787,9 @@ void uvc_close(uvc_device_handle_t *devh) {
   uvc_unref_device(devh->dev);
 
   uvc_free_devh(devh);
+
+finish:
+  pthread_mutex_unlock(&(ctx->lock));
 
   UVC_EXIT_VOID();
 }
@@ -1876,7 +1910,7 @@ void uvc_process_streaming_status(uvc_device_handle_t *devh, unsigned char *data
       return;
     }
     UVC_DEBUG("Button (intf %u) %s len %d\n", data[1], data[3] ? "pressed" : "released", len);
-    
+
     if(devh->button_cb) {
       UVC_DEBUG("Running user-supplied button callback");
       devh->button_cb(data[1],
@@ -1891,7 +1925,7 @@ void uvc_process_streaming_status(uvc_device_handle_t *devh, unsigned char *data
 }
 
 void uvc_process_status_xfer(uvc_device_handle_t *devh, struct libusb_transfer *transfer) {
-  
+
   UVC_ENTER();
 
   /* printf("Got transfer of aLen = %d\n", transfer->actual_length); */

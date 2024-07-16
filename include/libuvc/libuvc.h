@@ -566,7 +566,8 @@ uvc_error_t uvc_wrap(
 uvc_error_t uvc_open(
     uvc_device_t *dev,
     uvc_device_handle_t **devh);
-void uvc_close(uvc_device_handle_t *devh);
+/** Add this for close check */
+void uvc_close(uvc_context_t *ctx, uvc_device_handle_t *devh);
 
 int uvc_device_opened(uvc_context_t *ctx, uvc_device_handle_t *devh);
 

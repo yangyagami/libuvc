@@ -13,6 +13,7 @@
 #include <signal.h>
 #include <libusb.h>
 #include "utlist.h"
+#include "usb_event_queue.h"
 
 /** Converts an unaligned four-byte little-endian integer into an int32 */
 #define DW_TO_INT(p) ((p)[0] | ((p)[1] << 8) | ((p)[2] << 16) | ((p)[3] << 24))
@@ -306,6 +307,13 @@ struct uvc_context {
 
   /** Hotplug callback handle */
   libusb_hotplug_callback_handle hotplug_callback_handle;
+
+  /* For hotplug, if your camera disconnected and uvc_close called same time,
+     It may be broken, So I add lock here.
+  */
+  pthread_mutex_t lock;
+
+  uvc_usb_event_queue_t *queue;
 };
 
 uvc_error_t uvc_query_stream_ctrl(

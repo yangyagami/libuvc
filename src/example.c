@@ -208,7 +208,7 @@ int main(int argc, char **argv) {
       }
 
       /* Release our handle on the device */
-      uvc_close(devh);
+      uvc_close(ctx, devh);
       puts("Device closed");
     }
 

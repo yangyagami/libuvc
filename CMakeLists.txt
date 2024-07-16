@@ -37,6 +37,7 @@ set(SOURCES
   src/init.c
   src/stream.c
   src/misc.c
+  src/usb_event_queue.c
 )
 
 find_package(LibUSB)

@@ -76,9 +76,11 @@ YUV stream from a UVC device such as a standard webcam.
  * @brief Setup routines used to construct UVC access contexts
  */
 #include <assert.h>
+#include <pthread.h>
 
 #include "libuvc/libuvc.h"
 #include "libuvc/libuvc_internal.h"
+#include "usb_event_queue.h"
 
 /** @internal
  * @brief Hotplug callback.
@@ -93,25 +95,18 @@ int _uvc_hotplug_callback(
 
   uvc_context_t *uvc_ctx = (uvc_context_t *) user_data;
 
-  uvc_device_handle_t *devh;
-
   (void)libusb_get_device_descriptor(dev, &desc);
 
   if (LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT == event) {
-    DL_FOREACH(uvc_ctx->open_devices, devh) {
-      assert(devh != NULL && devh->dev != NULL && devh->dev->usb_dev != NULL);
+    UVC_DEBUG("USB LEFT EVENT!!!!, tid: %ld", pthread_self());
 
-      struct libusb_device_descriptor open_device_desc;
-      (void)libusb_get_device_descriptor(devh->dev->usb_dev,
-                                           &open_device_desc);
-      if (open_device_desc.idVendor == desc.idVendor &&
-          open_device_desc.idProduct == desc.idProduct) {
-        if (uvc_device_opened(uvc_ctx, devh)) {
-          uvc_close(devh);
-        }
-
-        UVC_DEBUG("Device left");
-      }
+    if (!uvc_usb_event_queue_isfull(uvc_ctx->queue)) {
+      uvc_usb_event_t e = {
+      	    .vid = desc.idVendor,
+      	    .pid = desc.idProduct,
+      	    .type = LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT
+      };
+      uvc_usb_event_queue_enqueue(uvc_ctx->queue, e);
     }
   } else {
     UVC_DEBUG("Unhandled event %d\n", event);
@@ -129,8 +124,29 @@ int _uvc_hotplug_callback(
 void *_uvc_handle_events(void *arg) {
   uvc_context_t *ctx = (uvc_context_t *) arg;
 
-  while (!ctx->kill_handler_thread)
+  while (!ctx->kill_handler_thread) {
+    if (!uvc_usb_event_queue_empty(ctx->queue)) {
+      uvc_device_handle_t *devh = NULL;
+      uvc_usb_event_t e = uvc_usb_event_queue_dequeue(ctx->queue);
+
+      DL_FOREACH(ctx->open_devices, devh) {
+        assert(devh != NULL && devh->dev != NULL && devh->dev->usb_dev != NULL);
+
+        struct libusb_device_descriptor open_device_desc;
+        (void)libusb_get_device_descriptor(devh->dev->usb_dev,
+                                           &open_device_desc);
+        if (open_device_desc.idVendor == e.vid &&
+            open_device_desc.idProduct == e.pid) {
+          if (uvc_device_opened(ctx, devh)) {
+      	    uvc_close(ctx, devh);
+      	    UVC_DEBUG("Device left (vid: %x, pid: %x)",
+      		      open_device_desc.idVendor, open_device_desc.idProduct);
+          }
+        }
+      }
+    }
     libusb_handle_events_completed(ctx->usb_ctx, &ctx->kill_handler_thread);
+  }
   return NULL;
 }
 
@@ -177,6 +193,10 @@ uvc_error_t uvc_init(uvc_context_t **pctx, struct libusb_context *usb_ctx) {
           ctx,
           &ctx->hotplug_callback_handle);
     }
+    /* Init lock here */
+    pthread_mutex_init(&(ctx->lock), NULL);
+
+    ctx->queue = uvc_usb_event_queue_create();
   }
 
   return ret;
@@ -198,14 +218,22 @@ void uvc_exit(uvc_context_t *ctx) {
   uvc_device_handle_t *devh;
 
   DL_FOREACH(ctx->open_devices, devh) {
-    uvc_close(devh);
+    uvc_close(ctx, devh);
   }
 
   if (ctx->own_usb_ctx) {
     libusb_hotplug_deregister_callback(ctx->usb_ctx,
                                        ctx->hotplug_callback_handle);
+
+    ctx->kill_handler_thread = 1;
+    pthread_join(ctx->handler_thread, NULL);
+
     libusb_exit(ctx->usb_ctx);
   }
+
+  pthread_mutex_destroy(&(ctx->lock));
+
+  uvc_usb_event_queue_destroy(ctx->queue);
 
   free(ctx);
 }
