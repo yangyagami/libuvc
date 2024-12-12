@@ -77,6 +77,7 @@ YUV stream from a UVC device such as a standard webcam.
  */
 #include <assert.h>
 #include <pthread.h>
+#include <unistd.h>
 
 #include "libuvc/libuvc.h"
 #include "libuvc/libuvc_internal.h"
@@ -93,12 +94,16 @@ int _uvc_hotplug_callback(
   static libusb_device_handle *dev_handle = NULL;
   struct libusb_device_descriptor desc;
 
+  uvc_device_handle_t *devh = NULL;
+
   uvc_context_t *uvc_ctx = (uvc_context_t *) user_data;
 
   (void)libusb_get_device_descriptor(dev, &desc);
 
   if (LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT == event) {
-    UVC_DEBUG("USB LEFT EVENT!!!!, tid: %ld", pthread_self());
+    UVC_DEBUG("USB LEFT EVENT!!!!, tid: %ld, queue is full: %d",
+	      pthread_self(),
+	      uvc_usb_event_queue_isfull(uvc_ctx->queue));
 
     if (!uvc_usb_event_queue_isfull(uvc_ctx->queue)) {
       uvc_usb_event_t e = {
@@ -112,6 +117,7 @@ int _uvc_hotplug_callback(
     UVC_DEBUG("Unhandled event %d\n", event);
   }
 
+  UVC_DEBUG("libusb hotplug callback finished");
   return 0;
 }
 
@@ -124,10 +130,15 @@ int _uvc_hotplug_callback(
 void *_uvc_handle_events(void *arg) {
   uvc_context_t *ctx = (uvc_context_t *) arg;
 
+  UVC_DEBUG("Thread started, kill_handler_thread: %d", ctx->kill_handler_thread);
+
   while (!ctx->kill_handler_thread) {
+    // UVC_DEBUG("Event queue empty: %d", uvc_usb_event_queue_empty(ctx->queue));
     if (!uvc_usb_event_queue_empty(ctx->queue)) {
       uvc_device_handle_t *devh = NULL;
       uvc_usb_event_t e = uvc_usb_event_queue_dequeue(ctx->queue);
+
+      UVC_DEBUG("Event vid: %x, pid: %x", e.vid, e.pid);
 
       DL_FOREACH(ctx->open_devices, devh) {
         assert(devh != NULL && devh->dev != NULL && devh->dev->usb_dev != NULL);
@@ -146,6 +157,8 @@ void *_uvc_handle_events(void *arg) {
       }
     }
     libusb_handle_events_completed(ctx->usb_ctx, &ctx->kill_handler_thread);
+
+    // UVC_DEBUG("kill_handler_thread: %d", ctx->kill_handler_thread);
   }
   return NULL;
 }
@@ -181,6 +194,10 @@ uvc_error_t uvc_init(uvc_context_t **pctx, struct libusb_context *usb_ctx) {
 
   if (ctx != NULL) {
     if (ctx->usb_ctx != NULL) {
+      /* Init lock here */
+      pthread_mutex_init(&(ctx->lock), NULL);
+      ctx->queue = uvc_usb_event_queue_create();
+
       libusb_hotplug_callback_handle callback_handle;
       libusb_hotplug_register_callback(
           ctx->usb_ctx,
@@ -193,10 +210,6 @@ uvc_error_t uvc_init(uvc_context_t **pctx, struct libusb_context *usb_ctx) {
           ctx,
           &ctx->hotplug_callback_handle);
     }
-    /* Init lock here */
-    pthread_mutex_init(&(ctx->lock), NULL);
-
-    ctx->queue = uvc_usb_event_queue_create();
   }
 
   return ret;
@@ -226,7 +239,9 @@ void uvc_exit(uvc_context_t *ctx) {
                                        ctx->hotplug_callback_handle);
 
     ctx->kill_handler_thread = 1;
-    pthread_join(ctx->handler_thread, NULL);
+    if (ctx->handler_thread) {
+      pthread_join(ctx->handler_thread, NULL);
+    }
 
     libusb_exit(ctx->usb_ctx);
   }

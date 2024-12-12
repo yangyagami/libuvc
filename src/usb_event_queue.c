@@ -52,9 +52,9 @@ int uvc_usb_event_queue_isfull(uvc_usb_event_queue_t *queue) {
 }
 
 void uvc_usb_event_queue_enqueue(uvc_usb_event_queue_t *queue, uvc_usb_event_t event) {
-  pthread_mutex_lock(&(queue->lock));
-
   assert(!uvc_usb_event_queue_isfull(queue));
+
+  pthread_mutex_lock(&(queue->lock));
 
   queue->buffer[queue->back] = event;
   queue->back = (queue->back + 1) % UVC_QUEUE_MAX_SIZE;
@@ -63,9 +63,9 @@ void uvc_usb_event_queue_enqueue(uvc_usb_event_queue_t *queue, uvc_usb_event_t e
 }
 
 uvc_usb_event_t uvc_usb_event_queue_dequeue(uvc_usb_event_queue_t *queue) {
-  pthread_mutex_lock(&(queue->lock));
-
   assert(!uvc_usb_event_queue_empty(queue));
+
+  pthread_mutex_lock(&(queue->lock));
 
   uvc_usb_event_t event;
   event = queue->buffer[queue->front];

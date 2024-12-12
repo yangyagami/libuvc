@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
     puts("Device found");
 
     /* Try to open the device: requires exclusive access */
-    res = uvc_open(dev, &devh);
+    res = uvc_open(ctx, dev, &devh);
 
     if (res < 0) {
       uvc_perror(res, "uvc_open"); /* unable to open device */

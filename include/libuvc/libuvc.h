@@ -564,6 +564,7 @@ uvc_error_t uvc_wrap(
 #endif
 
 uvc_error_t uvc_open(
+    uvc_context_t *ctx,
     uvc_device_t *dev,
     uvc_device_handle_t **devh);
 /** Add this for close check */

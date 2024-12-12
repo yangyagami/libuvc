@@ -36,6 +36,10 @@
  * @brief Support for finding, inspecting and opening UVC devices
  */
 
+#include <errno.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "libuvc/libuvc.h"
 #include "libuvc/libuvc_internal.h"
 
@@ -330,6 +334,7 @@ int uvc_device_opened(uvc_context_t *ctx, uvc_device_handle_t *devh) {
  * @return Error opening device or SUCCESS
  */
 uvc_error_t uvc_open(
+    uvc_context_t *ctx,
     uvc_device_t *dev,
     uvc_device_handle_t **devh) {
   uvc_error_t ret;
@@ -337,16 +342,20 @@ uvc_error_t uvc_open(
 
   UVC_ENTER();
 
+  pthread_mutex_lock(&(ctx->lock));
+
   ret = libusb_open(dev->usb_dev, &usb_devh);
   UVC_DEBUG("libusb_open() = %d", ret);
 
   if (ret != UVC_SUCCESS) {
     UVC_EXIT(ret);
+    pthread_mutex_unlock(&(ctx->lock));
     return ret;
   }
 
   ret = uvc_open_internal(dev, usb_devh, devh);
   UVC_EXIT(ret);
+  pthread_mutex_unlock(&(ctx->lock));
   return ret;
 }
 
@@ -1744,6 +1753,7 @@ void uvc_close(uvc_context_t *ctx, uvc_device_handle_t *devh) {
   pthread_mutex_lock(&(ctx->lock));
 
   UVC_DEBUG("uvc_close tid: %ld", pthread_self());
+
   DL_FOREACH(ctx->open_devices, devh_iterator) {
     UVC_DEBUG("Fucking debug.....");
     if (devh != NULL && devh_iterator != NULL) {

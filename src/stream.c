@@ -36,6 +36,8 @@
  * @brief Tools for creating, managing and consuming video streams
  */
 
+#include <unistd.h>
+
 #include "libuvc/libuvc.h"
 #include "libuvc/libuvc_internal.h"
 #include "errno.h"
@@ -938,16 +940,23 @@ uvc_error_t uvc_start_streaming(
   uvc_error_t ret;
   uvc_stream_handle_t *strmh;
 
+  uvc_context_t *ctx = devh->dev->ctx;
+  pthread_mutex_lock(&(ctx->lock));
+
   ret = uvc_stream_open_ctrl(devh, &strmh, ctrl);
-  if (ret != UVC_SUCCESS)
+  if (ret != UVC_SUCCESS) {
+    pthread_mutex_unlock(&(ctx->lock));
     return ret;
+  }
 
   ret = uvc_stream_start(strmh, cb, user_ptr, flags);
   if (ret != UVC_SUCCESS) {
     uvc_stream_close(strmh);
+    pthread_mutex_unlock(&(ctx->lock));
     return ret;
   }
 
+  pthread_mutex_unlock(&(ctx->lock));
   return UVC_SUCCESS;
 }
 
